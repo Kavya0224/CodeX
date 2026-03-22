@@ -1,6 +1,5 @@
 node_modules/
 .env
-dist/
-build/
-coverage/
-*.log
+backend/.env
+workspace/
+backend/workspace/

@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const solveRoute = require("./routes/solveRoute");
 const { PORT } = require("./config/env");
+const { cleanupOldWorkspaceFiles } = require("./execution/fileManager");
 
 const app = express();
 
@@ -23,6 +24,12 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/solve", solveRoute);
+
+/*
+  Cleanup old workspace files on server startup
+  Default here: remove files older than 1 hour
+*/
+cleanupOldWorkspaceFiles({ maxAgeMs: 60 * 60 * 1000 });
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
