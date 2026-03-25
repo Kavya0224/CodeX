@@ -1,39 +1,80 @@
 const { spawn } = require("child_process");
 const path = require("path");
+const { saveInputToFile, cleanupFiles } = require("./fileManager");
 
 /*
-  Execute generated code file
-
-  Supported languages:
-  - JavaScript
-  - C++
+  Execute generated code inside Docker sandbox
 */
 const executeCode = async ({ filePath, language, stdin = "" }) => {
   const normalizedLanguage = language?.toLowerCase();
 
-  if (normalizedLanguage === "javascript") {
-    return runJavaScript(filePath, stdin);
+  if (!["javascript", "cpp"].includes(normalizedLanguage)) {
+    return {
+      success: false,
+      output: "",
+      error: `Execution for '${language}' is not supported right now. Please use javascript or cpp.`,
+      status: "execution_not_supported"
+    };
   }
 
-  if (normalizedLanguage === "cpp") {
-    return runCpp(filePath, stdin);
-  }
+  const inputFile = await saveInputToFile({ stdin });
+  const workspaceDir = path.dirname(filePath);
+  const codeFileName = path.basename(filePath);
+  const inputFileName = path.basename(inputFile.inputFilePath);
 
-  return {
-    success: false,
-    output: "",
-    error: `Execution for '${language}' is not supported right now. Please use javascript or cpp.`,
-    status: "execution_not_supported"
-  };
+  // Expected compiled binary path for cpp on host workspace
+  const compiledBinaryPath =
+    normalizedLanguage === "cpp"
+      ? path.join(workspaceDir, `${path.parse(codeFileName).name}.exe`)
+      : null;
+
+  try {
+    const result = await runInDocker({
+      workspaceDir,
+      language: normalizedLanguage,
+      codeFileName,
+      inputFileName
+    });
+
+    // Clean temporary input file and compiled binary after execution
+    await cleanupFiles([
+      inputFile.inputFilePath,
+      compiledBinaryPath
+    ]);
+
+    return result;
+  } catch (error) {
+    await cleanupFiles([
+      inputFile.inputFilePath,
+      compiledBinaryPath
+    ]);
+
+    return {
+      success: false,
+      output: "",
+      error: error.message,
+      status: "execution_failed"
+    };
+  }
 };
 
-/*
-  Generic helper to run a process with stdin
-*/
-const runProcess = (command, args = [], stdin = "", timeoutMs = 5000) => {
+const runInDocker = ({ workspaceDir, language, codeFileName, inputFileName }) => {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      stdio: ["pipe", "pipe", "pipe"]
+    const dockerArgs = [
+      "run",
+      "--rm",
+      "--network", "none",
+      "--memory", "256m",
+      "--cpus", "1",
+      "-v", `${workspaceDir}:/app/workspace`,
+      "ai-code-sandbox",
+      language,
+      `/app/workspace/${codeFileName}`,
+      `/app/workspace/${inputFileName}`
+    ];
+
+    const child = spawn("docker", dockerArgs, {
+      stdio: ["ignore", "pipe", "pipe"]
     });
 
     let stdout = "";
@@ -48,11 +89,11 @@ const runProcess = (command, args = [], stdin = "", timeoutMs = 5000) => {
         resolve({
           success: false,
           output: stdout.trim(),
-          error: "Process timed out",
+          error: "Sandbox execution timed out",
           status: "execution_timeout"
         });
       }
-    }, timeoutMs);
+    }, 10000);
 
     child.stdout.on("data", (data) => {
       stdout += data.toString();
@@ -84,17 +125,8 @@ const runProcess = (command, args = [], stdin = "", timeoutMs = 5000) => {
         return resolve({
           success: false,
           output: stdout.trim(),
-          error: stderr.trim() || `Process exited with code ${code}`,
+          error: stderr.trim() || `Sandbox exited with code ${code}`,
           status: "execution_failed"
-        });
-      }
-
-      if (stderr.trim() !== "") {
-        return resolve({
-          success: false,
-          output: stdout.trim(),
-          error: stderr.trim(),
-          status: "execution_stderr"
         });
       }
 
@@ -104,69 +136,6 @@ const runProcess = (command, args = [], stdin = "", timeoutMs = 5000) => {
         error: "",
         status: "execution_success"
       });
-    });
-
-    // Pass input to the child process
-    if (stdin) {
-      child.stdin.write(stdin);
-    }
-    child.stdin.end();
-  });
-};
-
-/*
-  Run JavaScript file using Node.js
-*/
-const runJavaScript = async (filePath, stdin) => {
-  return runProcess(process.execPath, [filePath], stdin, 5000);
-};
-
-/*
-  Compile and run C++ file
-*/
-const runCpp = async (filePath, stdin) => {
-  return new Promise((resolve) => {
-    const parsedPath = path.parse(filePath);
-    const outputFilePath = path.join(parsedPath.dir, `${parsedPath.name}.exe`);
-
-    // Step 1: compile
-    const compiler = spawn("g++", [filePath, "-o", outputFilePath], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let compileStdout = "";
-    let compileStderr = "";
-
-    compiler.stdout.on("data", (data) => {
-      compileStdout += data.toString();
-    });
-
-    compiler.stderr.on("data", (data) => {
-      compileStderr += data.toString();
-    });
-
-    compiler.on("error", (error) => {
-      return resolve({
-        success: false,
-        output: compileStdout.trim(),
-        error: error.message,
-        status: "compilation_failed"
-      });
-    });
-
-    compiler.on("close", async (code) => {
-      if (code !== 0) {
-        return resolve({
-          success: false,
-          output: compileStdout.trim(),
-          error: compileStderr.trim() || `Compilation failed with code ${code}`,
-          status: "compilation_failed"
-        });
-      }
-
-      // Step 2: run compiled executable
-      const runResult = await runProcess(outputFilePath, [], stdin, 5000);
-      resolve(runResult);
     });
   });
 };

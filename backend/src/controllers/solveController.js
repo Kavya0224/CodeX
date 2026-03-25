@@ -2,8 +2,15 @@ const { processProblem } = require("../services/solveService");
 
 const solveProblem = async (req, res) => {
   try {
-    // Read problem, language, and optional stdin from request
-    const { problem, language, stdin } = req.body;
+    const {
+      problem,
+      language,
+      stdin,
+      expectedOutput,
+      testCases,
+      publicTests,
+      hiddenTests
+    } = req.body;
 
     if (!problem || problem.trim() === "") {
       return res.status(400).json({
@@ -15,7 +22,11 @@ const solveProblem = async (req, res) => {
     const result = await processProblem({
       problem,
       language,
-      stdin: stdin || ""
+      stdin: stdin || "",
+      expectedOutput: expectedOutput || "",
+      testCases: Array.isArray(testCases) ? testCases : [],
+      publicTests: Array.isArray(publicTests) ? publicTests : [],
+      hiddenTests: Array.isArray(hiddenTests) ? hiddenTests : []
     });
 
     return res.status(200).json(result);

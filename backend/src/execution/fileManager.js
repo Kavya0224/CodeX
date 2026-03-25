@@ -1,33 +1,18 @@
-// Node's built-in file system module
 const fs = require("fs");
-
-// Node's path module helps build safe file paths
 const path = require("path");
 
-/*
-  Helper function: decide file extension from selected language
-*/
 const getFileExtension = (language) => {
   const normalizedLanguage = language?.toLowerCase();
 
   if (normalizedLanguage === "javascript") return "js";
   if (normalizedLanguage === "cpp") return "cpp";
-  if (normalizedLanguage === "python") return "py";
 
-  // fallback extension for unsupported cases
   return "txt";
 };
 
-/*
-  Helper function: create workspace folder if it does not exist
-*/
 const ensureWorkspaceExists = () => {
-  const workspacePath = path.join(__dirname, "workspace");
+  const workspacePath = path.resolve(__dirname, "../../workspace");
 
-  /*
-    fs.existsSync checks whether the folder already exists.
-    If not, fs.mkdirSync creates it.
-  */
   if (!fs.existsSync(workspacePath)) {
     fs.mkdirSync(workspacePath, { recursive: true });
   }
@@ -35,37 +20,13 @@ const ensureWorkspaceExists = () => {
   return workspacePath;
 };
 
-/*
-  Main function: save generated code into a file
-
-  Purpose:
-  - Create workspace if needed
-  - Generate a unique filename
-  - Write generated code into that file
-  - Return file metadata
-*/
 const saveCodeToFile = async ({ code, language }) => {
-  // Make sure the workspace directory exists
   const workspacePath = ensureWorkspaceExists();
-
-  // Get correct extension based on selected language
   const extension = getFileExtension(language);
 
-  /*
-    Create a unique filename using timestamp.
-    Example:
-    solution_1712345678901.cpp
-  */
   const fileName = `solution_${Date.now()}.${extension}`;
-
-  // Build full absolute path
   const filePath = path.join(workspacePath, fileName);
 
-  /*
-    Write code to the file.
-    fs.writeFileSync is enough for this phase.
-    Later we can switch to async if needed.
-  */
   fs.writeFileSync(filePath, code, "utf-8");
 
   return {
@@ -76,7 +37,76 @@ const saveCodeToFile = async ({ code, language }) => {
   };
 };
 
-// Export function so service can use it
+const saveInputToFile = async ({ stdin = "" }) => {
+  const workspacePath = ensureWorkspaceExists();
+
+  const inputFileName = `input_${Date.now()}.txt`;
+  const inputFilePath = path.join(workspacePath, inputFileName);
+
+  fs.writeFileSync(inputFilePath, stdin, "utf-8");
+
+  return {
+    inputFileName,
+    inputFilePath,
+    status: "input_saved"
+  };
+};
+
+/*
+  Delete a single file safely
+*/
+const deleteFileIfExists = async (filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error("Failed to delete file:", filePath, error.message);
+  }
+};
+
+/*
+  Delete multiple files safely
+*/
+const cleanupFiles = async (filePaths = []) => {
+  for (const filePath of filePaths) {
+    await deleteFileIfExists(filePath);
+  }
+};
+
+/*
+  Optional helper:
+  remove old files from workspace if they are older than given age
+*/
+const cleanupOldWorkspaceFiles = async ({ maxAgeMs = 60 * 60 * 1000 } = {}) => {
+  try {
+    const workspacePath = ensureWorkspaceExists();
+    const files = fs.readdirSync(workspacePath);
+    const now = Date.now();
+
+    for (const fileName of files) {
+      const fullPath = path.join(workspacePath, fileName);
+
+      try {
+        const stats = fs.statSync(fullPath);
+        const age = now - stats.mtimeMs;
+
+        if (age > maxAgeMs) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch (error) {
+        console.error("Failed while cleaning old workspace file:", fullPath, error.message);
+      }
+    }
+  } catch (error) {
+    console.error("Workspace cleanup error:", error.message);
+  }
+};
+
 module.exports = {
-  saveCodeToFile
+  saveCodeToFile,
+  saveInputToFile,
+  deleteFileIfExists,
+  cleanupFiles,
+  cleanupOldWorkspaceFiles
 };

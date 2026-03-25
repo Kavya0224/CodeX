@@ -7,38 +7,69 @@ const client = new Groq({
 });
 
 /*
-Debug Agent
+  Debug Agent
 
-Purpose:
-Fix code when compilation or runtime errors occur.
+  Purpose:
+  Fix code using richer debugging context.
 */
-const fixCodeWithLLM = async ({ code, error, language }) => {
+const fixCodeWithLLM = async ({
+  problem,
+  code,
+  language,
+  failureType = "",
+  error = "",
+  stdin = "",
+  expectedOutput = "",
+  actualOutput = ""
+}) => {
   try {
-
     const systemPrompt = `
-You are an expert software engineer.
+You are an expert competitive programmer and debugging assistant.
 
 You will receive:
-1) A program
-2) An error message
+- a programming problem
+- the current code
+- failure details
 
-Your job:
-Fix the program so it runs correctly.
+Your task:
+Fix the code so it works correctly.
 
-Rules:
+Strict rules:
 - Return ONLY corrected ${language} code
 - No explanations
-- No markdown
+- No markdown fences
+- Keep input from standard input
+- Print only final required output
+- Do not add prompts like "Enter number"
+- Do not hardcode sample values
 `;
 
     const userPrompt = `
-Code:
+Problem:
+${problem}
+
+Language:
+${language}
+
+Failure Type:
+${failureType}
+
+Current Code:
 ${code}
 
-Error:
-${error}
+Runtime / Compiler Error:
+${error || "N/A"}
 
-Fix the program.
+Failing Input:
+${stdin || "N/A"}
+
+Expected Output:
+${expectedOutput || "N/A"}
+
+Actual Output:
+${actualOutput || "N/A"}
+
+Fix the program now.
 `;
 
     const response = await client.chat.completions.create({
@@ -47,17 +78,14 @@ Fix the program.
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      temperature: 0.2
+      temperature: 0.1
     });
 
     const content = response?.choices?.[0]?.message?.content || "";
 
     return sanitizeCode(content);
-
   } catch (error) {
-
     console.error("Debug agent error:", error);
-
     return code;
   }
 };
