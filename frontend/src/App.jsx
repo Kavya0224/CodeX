@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 function App() {
+  const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
   const [problem, setProblem] = useState("");
   const [language, setLanguage] = useState("cpp");
   const [stdin, setStdin] = useState("");
@@ -10,10 +12,72 @@ function App() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("code");
 
-  // Explanation state
   const [explanation, setExplanation] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
   const [explainError, setExplainError] = useState("");
+
+  const result = response?.data;
+
+  const parseExplanationSections = (text) => {
+    if (!text) return [];
+
+    const sectionTitles = [
+      "1. Problem Understanding",
+      "2. Approach",
+      "3. Code Walkthrough",
+      "4. Time Complexity",
+      "5. Space Complexity"
+    ];
+
+    const sections = [];
+
+    for (let i = 0; i < sectionTitles.length; i++) {
+      const currentTitle = sectionTitles[i];
+      const nextTitle = sectionTitles[i + 1];
+
+      const startIndex = text.indexOf(currentTitle);
+      if (startIndex === -1) continue;
+
+      let endIndex = text.length;
+
+      if (nextTitle) {
+        const nextIndex = text.indexOf(nextTitle, startIndex + currentTitle.length);
+        if (nextIndex !== -1) endIndex = nextIndex;
+      }
+
+      const rawSection = text.slice(startIndex, endIndex).trim();
+      const content = rawSection.replace(currentTitle, "").trim();
+
+      sections.push({
+        title: currentTitle.replace(/^\d+\.\s*/, ""),
+        content
+      });
+    }
+
+    if (sections.length === 0) {
+      return [{ title: "Explanation", content: text }];
+    }
+
+    return sections;
+  };
+
+  const explanationSections = parseExplanationSections(explanation);
+
+  const tabs = [
+    { key: "code", label: "Code" },
+    { key: "output", label: "Output" },
+    { key: "logs", label: "Logs" },
+    { key: "metrics", label: "Metrics" },
+    { key: "attempts", label: "Attempts" },
+    { key: "explain", label: "Explain" }
+  ];
+
+  const normalizeCode = (code) => {
+    return String(code || "")
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\r\n/g, "\n");
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,9 +86,10 @@ function App() {
     setResponse(null);
     setExplanation("");
     setExplainError("");
+    setActiveTab("code");
 
     try {
-      const res = await fetch("http://localhost:5000/solve", {
+      const res = await fetch(`${BASE_URL}/solve`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -40,7 +105,7 @@ function App() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Request failed");
+        throw new Error(data?.message || data?.error || "Request failed");
       }
 
       setResponse(data);
@@ -53,11 +118,12 @@ function App() {
 
   const handleCopyCode = async () => {
     try {
-      const codeText = String(result?.generatedCode || "")
-        .replace(/\\r\\n/g, "\n")
-        .replace(/\\n/g, "\n")
-        .replace(/\r\n/g, "\n");
+      if (!result?.generatedCode) {
+        alert("No code available to copy.");
+        return;
+      }
 
+      const codeText = normalizeCode(result.generatedCode);
       await navigator.clipboard.writeText(codeText);
       alert("Code copied successfully!");
     } catch (err) {
@@ -78,14 +144,18 @@ function App() {
   };
 
   const handleExplainCode = async () => {
-    if (!result?.generatedCode) return;
+    if (!result?.generatedCode) {
+      setExplainError("No code available to explain.");
+      setActiveTab("explain");
+      return;
+    }
 
     setExplainLoading(true);
     setExplainError("");
     setExplanation("");
 
     try {
-      const res = await fetch("http://localhost:5000/explain", {
+      const res = await fetch(`${BASE_URL}/explain`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -100,28 +170,18 @@ function App() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.message || "Failed to explain code");
+        throw new Error(data?.message || data?.error || "Failed to explain code");
       }
 
       setExplanation(data?.data?.explanation || "No explanation returned.");
       setActiveTab("explain");
     } catch (err) {
       setExplainError(err.message || "Failed to explain code.");
+      setActiveTab("explain");
     } finally {
       setExplainLoading(false);
     }
   };
-
-  const result = response?.data;
-
-  const tabs = [
-    { key: "code", label: "Code" },
-    { key: "output", label: "Output" },
-    { key: "logs", label: "Logs" },
-    { key: "metrics", label: "Metrics" },
-    { key: "attempts", label: "Attempts" },
-    { key: "explain", label: "Explain" }
-  ];
 
   return (
     <div style={styles.page}>
@@ -197,6 +257,7 @@ function App() {
                 type="button"
                 onClick={handleClear}
                 style={styles.clearButton}
+                disabled={loading || explainLoading}
               >
                 Clear
               </button>
@@ -272,6 +333,7 @@ function App() {
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
+                  type="button"
                   onClick={() => setActiveTab(tab.key)}
                   style={{
                     ...styles.tabButton,
@@ -288,10 +350,15 @@ function App() {
                 <div style={styles.codeHeader}>
                   <h3 style={styles.sectionTitle}>Generated Code</h3>
                   <div style={styles.codeButtonGroup}>
-                    <button onClick={handleCopyCode} style={styles.copyButton}>
+                    <button
+                      type="button"
+                      onClick={handleCopyCode}
+                      style={styles.copyButton}
+                    >
                       Copy Code
                     </button>
                     <button
+                      type="button"
                       onClick={handleExplainCode}
                       style={styles.explainButton}
                       disabled={explainLoading}
@@ -301,23 +368,8 @@ function App() {
                   </div>
                 </div>
 
-                <pre
-                  style={{
-                    background: "#0f172a",
-                    color: "#dbeafe",
-                    borderRadius: "16px",
-                    padding: "18px",
-                    fontSize: "13px",
-                    margin: 0,
-                    overflowX: "auto",
-                    whiteSpace: "pre-wrap",
-                    lineHeight: 1.6
-                  }}
-                >
-                  {String(result.generatedCode || "")
-                    .replace(/\\r\\n/g, "\n")
-                    .replace(/\\n/g, "\n")
-                    .replace(/\r\n/g, "\n")}
+                <pre style={styles.preCode}>
+                  {normalizeCode(result.generatedCode)}
                 </pre>
               </div>
             )}
@@ -332,11 +384,15 @@ function App() {
                   </div>
                   <div style={styles.outputBox}>
                     <div style={styles.outputLabel}>Output</div>
-                    <div style={styles.outputValue}>{result.execution?.output || "N/A"}</div>
+                    <div style={styles.outputValue}>
+                      {result.execution?.output || "N/A"}
+                    </div>
                   </div>
                   <div style={styles.outputBox}>
                     <div style={styles.outputLabel}>Error</div>
-                    <div style={styles.outputValue}>{result.execution?.error || "None"}</div>
+                    <div style={styles.outputValue}>
+                      {result.execution?.error || "None"}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -345,21 +401,27 @@ function App() {
             {activeTab === "logs" && (
               <div style={styles.contentCard}>
                 <h3 style={styles.sectionTitle}>Execution Logs</h3>
-                <pre style={styles.pre}>{JSON.stringify(result.logs || [], null, 2)}</pre>
+                <pre style={styles.pre}>
+                  {JSON.stringify(result.logs || [], null, 2)}
+                </pre>
               </div>
             )}
 
             {activeTab === "metrics" && (
               <div style={styles.contentCard}>
                 <h3 style={styles.sectionTitle}>Performance Metrics</h3>
-                <pre style={styles.pre}>{JSON.stringify(result.metrics || {}, null, 2)}</pre>
+                <pre style={styles.pre}>
+                  {JSON.stringify(result.metrics || {}, null, 2)}
+                </pre>
               </div>
             )}
 
             {activeTab === "attempts" && (
               <div style={styles.contentCard}>
                 <h3 style={styles.sectionTitle}>Attempt History</h3>
-                <pre style={styles.pre}>{JSON.stringify(result.attemptHistory || [], null, 2)}</pre>
+                <pre style={styles.pre}>
+                  {JSON.stringify(result.attemptHistory || [], null, 2)}
+                </pre>
               </div>
             )}
 
@@ -374,7 +436,14 @@ function App() {
                 )}
 
                 {explanation ? (
-                  <pre style={styles.pre}>{explanation}</pre>
+                  <div style={styles.explainGrid}>
+                    {explanationSections.map((section, index) => (
+                      <div key={index} style={styles.explainCard}>
+                        <h4 style={styles.explainTitle}>{section.title}</h4>
+                        <p style={styles.explainText}>{section.content}</p>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div style={styles.emptyExplain}>
                     Click <strong>Explain Code</strong> in the Code tab to generate an explanation.
@@ -706,6 +775,18 @@ const styles = {
     fontSize: "13px",
     lineHeight: 1.5
   },
+  preCode: {
+    background: "#0f172a",
+    color: "#dbeafe",
+    borderRadius: "16px",
+    padding: "18px",
+    fontSize: "13px",
+    margin: 0,
+    overflowX: "auto",
+    whiteSpace: "pre-wrap",
+    lineHeight: 1.6,
+    fontFamily: "Consolas, Monaco, 'Courier New', monospace"
+  },
   outputGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr 1fr",
@@ -727,7 +808,32 @@ const styles = {
   outputValue: {
     fontWeight: "700",
     fontSize: "15px",
-    color: "#fff"
+    color: "#fff",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word"
+  },
+  explainGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "14px"
+  },
+  explainCard: {
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: "16px",
+    padding: "16px"
+  },
+  explainTitle: {
+    marginTop: 0,
+    marginBottom: "10px",
+    fontSize: "16px",
+    color: "#f8fafc"
+  },
+  explainText: {
+    margin: 0,
+    lineHeight: 1.7,
+    color: "rgba(255,255,255,0.85)",
+    whiteSpace: "pre-wrap"
   },
   emptyExplain: {
     background: "rgba(255,255,255,0.06)",

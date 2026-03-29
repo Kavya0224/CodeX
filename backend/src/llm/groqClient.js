@@ -97,7 +97,56 @@ ${error.message}
 `;
   }
 };
+const generateExplanationWithGroq = async ({ problem, language, code }) => {
+  try {
+    const systemPrompt = `
+You are an expert programming tutor.
 
+Your task is to explain code clearly and professionally.
+
+Return the explanation in this exact format:
+
+1. Problem Understanding
+2. Approach
+3. Code Walkthrough
+4. Time Complexity
+5. Space Complexity
+
+Rules:
+- Be concise but clear
+- Use simple technical language
+- Do not return markdown code fences
+`;
+
+    const userPrompt = `
+Problem:
+${problem}
+
+Language:
+${language}
+
+Code:
+${code}
+
+Explain this solution.
+`;
+
+    const response = await client.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.2
+    });
+
+    return response?.choices?.[0]?.message?.content?.trim() || "No explanation generated.";
+  } catch (error) {
+    console.error("Groq explanation error:", error);
+    throw new Error("Failed to generate explanation");
+  }
+};
 module.exports = {
-  generateCodeWithGroq
+  generateCodeWithGroq,
+  generateExplanationWithGroq
 };
