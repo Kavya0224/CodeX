@@ -15,7 +15,10 @@ function App() {
   const [explanation, setExplanation] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
   const [explainError, setExplainError] = useState("");
-
+  const [runHistory, setRunHistory] = useState(() => {
+  const saved = localStorage.getItem("codex-run-history");
+  return saved ? JSON.parse(saved) : [];
+  });
   const result = response?.data;
 
   const parseExplanationSections = (text) => {
@@ -109,6 +112,20 @@ function App() {
       }
 
       setResponse(data);
+      const historyEntry = {
+  id: Date.now(),
+  timestamp: new Date().toLocaleString(),
+  problem,
+  language,
+  stdin,
+  expectedOutput,
+  verdict: data?.data?.verdict || "Unknown",
+  response: data
+};
+
+const updatedHistory = [historyEntry, ...runHistory].slice(0, 10);
+setRunHistory(updatedHistory);
+localStorage.setItem("codex-run-history", JSON.stringify(updatedHistory));
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {
@@ -142,7 +159,21 @@ function App() {
     setExplainError("");
     setActiveTab("code");
   };
+  const handleLoadHistoryItem = (item) => {
+  setProblem(item.problem || "");
+  setLanguage(item.language || "cpp");
+  setStdin(item.stdin || "");
+  setExpectedOutput(item.expectedOutput || "");
+  setResponse(item.response || null);
+  setError("");
+  setExplanation("");
+  setExplainError("");
+};
 
+const handleClearHistory = () => {
+  setRunHistory([]);
+  localStorage.removeItem("codex-run-history");
+};
   const handleExplainCode = async () => {
     if (!result?.generatedCode) {
       setExplainError("No code available to explain.");
@@ -184,6 +215,7 @@ function App() {
   };
 
   return (
+    
     <div style={styles.page}>
       <div style={styles.bgCircle1}></div>
       <div style={styles.bgCircle2}></div>
@@ -271,6 +303,49 @@ function App() {
           </form>
 
           <div style={styles.sidePanel}>
+          <div style={styles.miniInfoCard}>
+  <div style={styles.historyHeader}>
+    <div style={styles.infoTitle}>Recent Runs</div>
+    <button onClick={handleClearHistory} style={styles.historyClearButton}>
+      Clear
+    </button>
+  </div>
+
+  {runHistory.length === 0 ? (
+    <div style={styles.historyEmpty}>No previous runs yet.</div>
+  ) : (
+    <div style={styles.historyList}>
+      {runHistory.map((item) => (
+        <div
+          key={item.id}
+          style={styles.historyItem}
+          onClick={() => handleLoadHistoryItem(item)}
+        >
+          <div style={styles.historyProblem}>
+            {item.problem?.slice(0, 60) || "Untitled problem"}
+            {item.problem?.length > 60 ? "..." : ""}
+          </div>
+          <div style={styles.historyMeta}>
+            <span>{item.language}</span>
+            <span
+              style={{
+                color:
+                  item.verdict === "Accepted"
+                    ? "#22c55e"
+                    : item.verdict === "Wrong Answer"
+                    ? "#ef4444"
+                    : "#f59e0b"
+              }}
+            >
+              {item.verdict}
+            </span>
+          </div>
+          <div style={styles.historyTime}>{item.timestamp}</div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
             <div style={styles.verdictCard}>
               <div style={styles.verdictHeader}>Final Verdict</div>
               <div
@@ -489,6 +564,63 @@ const styles = {
     right: "-100px",
     filter: "blur(30px)"
   },
+  historyHeader: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "10px"
+},
+
+historyClearButton: {
+  border: "none",
+  borderRadius: "8px",
+  padding: "6px 10px",
+  fontSize: "11px",
+  cursor: "pointer",
+  background: "rgba(255,255,255,0.12)",
+  color: "#fff"
+},
+
+historyEmpty: {
+  fontSize: "13px",
+  color: "rgba(255,255,255,0.72)"
+},
+
+historyList: {
+  display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+  maxHeight: "320px",
+  overflowY: "auto"
+},
+
+historyItem: {
+  background: "rgba(255,255,255,0.08)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "12px",
+  padding: "10px",
+  cursor: "pointer"
+},
+
+historyProblem: {
+  fontSize: "13px",
+  fontWeight: "600",
+  marginBottom: "6px",
+  color: "#fff"
+},
+
+historyMeta: {
+  display: "flex",
+  justifyContent: "space-between",
+  fontSize: "12px",
+  color: "rgba(255,255,255,0.78)",
+  marginBottom: "4px"
+},
+
+historyTime: {
+  fontSize: "11px",
+  color: "rgba(255,255,255,0.58)"
+},
   bgCircle3: {
     position: "absolute",
     width: "240px",
